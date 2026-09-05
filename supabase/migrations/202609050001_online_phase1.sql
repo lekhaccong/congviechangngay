@@ -2,6 +2,7 @@
 -- Chạy bằng Supabase CLI/SQL Editor với quyền owner. Frontend chỉ dùng publishable key.
 
 create sequence if not exists public.sync_version_seq;
+grant usage, select on sequence public.sync_version_seq to authenticated;
 
 alter table public.profiles add column if not exists employee_id uuid;
 alter table public.profiles add column if not exists display_name text not null default '';
