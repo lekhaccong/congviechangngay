@@ -12,7 +12,9 @@ export function cacheProfile(profile: CloudProfile | null): void {
 }
 export async function fetchMyProfile(): Promise<CloudProfile> {
   if (!supabase) throw new Error("Supabase chưa được cấu hình");
-  const { data, error } = await supabase.from("profiles").select("id, employee_id, display_name, role, active").single();
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) throw authError ?? new Error("Phiên đăng nhập không hợp lệ");
+  const { data, error } = await supabase.from("profiles").select("id, employee_id, display_name, role, active").eq("id", authData.user.id).single();
   if (error) throw error;
   const profile: CloudProfile = { id: data.id, employeeId: data.employee_id, displayName: data.display_name ?? "Người dùng", role: data.role, active: data.active };
   cacheProfile(profile); return profile;
