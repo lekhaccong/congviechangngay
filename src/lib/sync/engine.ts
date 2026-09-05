@@ -30,6 +30,42 @@ async function repairLegacyScheduleIds(): Promise<void> {
   });
 }
 
+/**
+ * Backups made before Phase 1 do not contain a sync queue. After restore, child
+ * rows can therefore be queued without their employee parent. Re-queue every
+ * real referenced employee first and discard sample-only child operations.
+ */
+async function ensureReferencedEmployeesQueued(): Promise<void> {
+  const db = getDb();
+  const queue = await db.syncQueue.toArray();
+  const childOperations = queue.filter((item) => item.entityType !== "employees");
+  const employeeIds = new Set<string>();
+  const invalidOperationIds: string[] = [];
+  for (const operation of childOperations) {
+    try {
+      const payload = JSON.parse(operation.payload) as { employeeId?: string };
+      if (payload.employeeId) employeeIds.add(payload.employeeId);
+    } catch {
+      invalidOperationIds.push(operation.id);
+    }
+  }
+  const employees = (await db.employees.bulkGet([...employeeIds])).filter((row) => Boolean(row));
+  const realEmployees = employees.filter((row) => !row!.sample);
+  const realIds = new Set(realEmployees.map((row) => row!.id));
+  for (const operation of childOperations) {
+    try {
+      const payload = JSON.parse(operation.payload) as { employeeId?: string };
+      if (payload.employeeId && !realIds.has(payload.employeeId)) invalidOperationIds.push(operation.id);
+    } catch { /* already marked above */ }
+  }
+  await db.transaction("rw", db.syncQueue, async () => {
+    if (invalidOperationIds.length) await db.syncQueue.bulkDelete([...new Set(invalidOperationIds)]);
+    const alreadyQueued = new Set(queue.filter((item) => item.entityType === "employees").map((item) => item.entityId));
+    const parents = realEmployees.filter((row) => row && !alreadyQueued.has(row.id));
+    if (parents.length) await db.syncQueue.bulkAdd(parents.map((row) => makeSyncOperation("employees", row!.id, "UPSERT", row)));
+  });
+}
+
 async function ensureInitialSnapshot(): Promise<void> {
   const db = getDb();
   if (await db.syncState.get("initialSnapshotQueued")) return;
@@ -59,7 +95,9 @@ export async function pushPending(): Promise<void> {
     await setState("progress", `0/${queue.length}`);
     // Preserve foreign-key order and send rows in batches instead of one HTTP
     // request per calendar day.
+    let dependencyFailed = false;
     for (const entityType of ENTITIES) {
+      if (dependencyFailed) break;
       const entityQueue = queue.filter((item) => item.entityType === entityType);
       const latestById = new Map(entityQueue.map((item) => [item.entityId, item]));
       const latest = [...latestById.values()];
@@ -88,6 +126,7 @@ export async function pushPending(): Promise<void> {
             return { ...item, attempts, lastError: message, nextRetryAt: Date.now() + retryDelay(attempts) };
           }));
           await setState("lastError", message);
+          dependencyFailed = true;
         }
         completed += batch.length;
         await setState("progress", `${Math.min(completed, queue.length)}/${queue.length}`);
@@ -115,6 +154,7 @@ async function syncNow() {
   if (!navigator.onLine) return setState("status", "OFFLINE");
   try {
     await repairLegacyScheduleIds();
+    await ensureReferencedEmployeesQueued();
     if (!(await getDb().syncState.get("initialSnapshotQueued"))) await pullChanges();
     await ensureInitialSnapshot(); await pushPending(); await pullChanges();
   } catch (error) { await setState("status", "ERROR"); console.error("[sync]", error); }
