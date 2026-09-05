@@ -4,11 +4,31 @@ import { supabase, supabaseConfigured } from "@/lib/supabase/client";
 import { applyCloudRow, toCloud } from "./mapping";
 import { retryDelay } from "./queue";
 import { makeSyncOperation } from "./queue";
+import { nid } from "@/lib/cvp/ids";
 
 const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance"];
 let running = false; let timer: number | null = null; let channel: ReturnType<NonNullable<typeof supabase>["channel"]> | null = null;
 
 async function setState(key: string, value: string) { await getDb().syncState.put({ key, value }); }
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Repair schedule IDs produced by pre-Phase-1 Excel imports (`employeeId-date`). */
+async function repairLegacyScheduleIds(): Promise<void> {
+  const db = getDb();
+  const legacyRows = await db.workSchedules.filter((row) => !UUID_PATTERN.test(row.id)).toArray();
+  if (!legacyRows.length) return;
+  await db.transaction("rw", db.workSchedules, db.syncQueue, async () => {
+    for (const oldRow of legacyRows) {
+      const row = { ...oldRow, id: nid(), updatedAt: Date.now() };
+      await db.workSchedules.delete(oldRow.id);
+      await db.workSchedules.put(row);
+      const stale = await db.syncQueue.where("entityType").equals("work_schedules").filter((item) => item.entityId === oldRow.id).primaryKeys();
+      if (stale.length) await db.syncQueue.bulkDelete(stale);
+      await db.syncQueue.add(makeSyncOperation("work_schedules", row.id, "UPSERT", row));
+    }
+  });
+}
 
 async function ensureInitialSnapshot(): Promise<void> {
   const db = getDb();
@@ -35,20 +55,42 @@ export async function pushPending(): Promise<void> {
   const db = getDb();
   try {
     const queue = await db.syncQueue.where("nextRetryAt").belowOrEqual(Date.now()).sortBy("createdAt");
-    for (const operation of queue) {
-      try {
-        if (operation.operation === "DELETE") {
-          const { error } = await supabase.from(operation.entityType).update({ deleted_at: new Date().toISOString() }).eq("id", operation.entityId);
-          if (error) throw error;
-        } else {
-          const cloud = await toCloud(operation.entityType, JSON.parse(operation.payload));
-          const { error } = await supabase.from(operation.entityType).upsert(cloud, { onConflict: "id" });
-          if (error) throw error;
+    let completed = 0;
+    await setState("progress", `0/${queue.length}`);
+    // Preserve foreign-key order and send rows in batches instead of one HTTP
+    // request per calendar day.
+    for (const entityType of ENTITIES) {
+      const entityQueue = queue.filter((item) => item.entityType === entityType);
+      const latestById = new Map(entityQueue.map((item) => [item.entityId, item]));
+      const latest = [...latestById.values()];
+      for (let offset = 0; offset < latest.length; offset += 100) {
+        const batch = latest.slice(offset, offset + 100);
+        try {
+          const deleted = batch.filter((item) => item.operation === "DELETE");
+          if (deleted.length) {
+            const { error } = await supabase.from(entityType).update({ deleted_at: new Date().toISOString() }).in("id", deleted.map((item) => item.entityId));
+            if (error) throw error;
+          }
+          const upserts = batch.filter((item) => item.operation === "UPSERT");
+          if (upserts.length) {
+            const rows = await Promise.all(upserts.map((item) => toCloud(entityType, JSON.parse(item.payload))));
+            const { error } = await supabase.from(entityType).upsert(rows, { onConflict: "id" });
+            if (error) throw error;
+          }
+          const entityIds = new Set(batch.map((item) => item.entityId));
+          await db.syncQueue.bulkDelete(entityQueue.filter((item) => entityIds.has(item.entityId)).map((item) => item.id));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const entityIds = new Set(batch.map((item) => item.entityId));
+          const failed = entityQueue.filter((item) => entityIds.has(item.entityId));
+          await db.syncQueue.bulkPut(failed.map((item) => {
+            const attempts = item.attempts + 1;
+            return { ...item, attempts, lastError: message, nextRetryAt: Date.now() + retryDelay(attempts) };
+          }));
+          await setState("lastError", message);
         }
-        await db.syncQueue.delete(operation.id);
-      } catch (error) {
-        const attempts = operation.attempts + 1;
-        await db.syncQueue.update(operation.id, { attempts, lastError: error instanceof Error ? error.message : String(error), nextRetryAt: Date.now() + retryDelay(attempts) });
+        completed += batch.length;
+        await setState("progress", `${Math.min(completed, queue.length)}/${queue.length}`);
       }
     }
     await setState("lastSyncedAt", String(Date.now()));
@@ -72,6 +114,7 @@ export async function pullChanges(): Promise<void> {
 async function syncNow() {
   if (!navigator.onLine) return setState("status", "OFFLINE");
   try {
+    await repairLegacyScheduleIds();
     if (!(await getDb().syncState.get("initialSnapshotQueued"))) await pullChanges();
     await ensureInitialSnapshot(); await pushPending(); await pullChanges();
   } catch (error) { await setState("status", "ERROR"); console.error("[sync]", error); }

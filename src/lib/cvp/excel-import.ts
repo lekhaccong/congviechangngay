@@ -338,7 +338,7 @@ export async function importPeople(rows: PersonImportRow[], groupId: string, shi
     if (!employee) continue;
     const now = Date.now();
     const old = scheduleByKey.get(`${employee.id}|${schedule.date}`);
-    scheduleRowsToSave.push({ id: old?.id ?? `${employee.id}-${schedule.date}`, employeeId: employee.id, date: schedule.date, shiftCode: schedule.shiftCode, source: "Lịch làm việc Excel", createdAt: old?.createdAt ?? now, updatedAt: now });
+    scheduleRowsToSave.push({ id: old?.id ?? nid(), employeeId: employee.id, date: schedule.date, shiftCode: schedule.shiftCode, source: "Lịch làm việc Excel", createdAt: old?.createdAt ?? now, updatedAt: now });
   }
   if (scheduleRowsToSave.length) await db.transaction("rw", db.workSchedules, db.syncQueue, async () => {
     await db.workSchedules.bulkPut(scheduleRowsToSave);
