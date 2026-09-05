@@ -2,13 +2,16 @@ name: Build APK
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, feature/online-sync]
   workflow_dispatch:
 
 jobs:
   apk:
     name: Android APK
     runs-on: ubuntu-latest
+    env:
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
 
     steps:
       - name: Checkout source
@@ -29,7 +32,7 @@ jobs:
       - name: Check TypeScript and business logic
         run: |
           npm run typecheck
-          node --experimental-strip-types --test src/lib/cvp/*.test.ts
+          node --experimental-strip-types --test src/lib/cvp/*.test.ts src/lib/sync/*.test.ts
 
       - name: Build static web for Capacitor
         run: npm run build:native

@@ -23,7 +23,7 @@ const MAP: Record<Role, Perm[]> = {
     "settings",
     "view",
   ],
-  LEADER: [
+  MANAGER: [
     "manage_people",
     "manage_tasks",
     "manage_goods",
@@ -32,7 +32,7 @@ const MAP: Record<Role, Perm[]> = {
     "attendance",
     "view",
   ],
-  USER: ["execute", "attendance", "view"],
+  EMPLOYEE: ["execute", "attendance", "view"],
   VIEWER: ["view"],
 };
 

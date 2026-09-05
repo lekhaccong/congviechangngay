@@ -3,6 +3,9 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { AppShell } from "@/components/layout/app-shell";
 import appCss from "../styles.css?url";
+import { registerServiceWorker } from "@/lib/pwa/register-service-worker";
+
+if (typeof window !== "undefined") registerServiceWorker();
 
 const APP_NAME = "Quản lý kho E";
 

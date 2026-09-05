@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import { getDb } from "./db";
-import { createEmployee, createOvertime, normalizeEmployeeCode, upsertDataItem, writeAudit } from "./repo";
+import { createEmployee, createOvertime, normalizeEmployeeCode, updateEmployee, upsertDataItem, writeAudit } from "./repo";
+import { makeSyncOperation } from "@/lib/sync/queue";
 import { cleanShiftCode } from "./business-shifts";
 import { nid } from "./ids";
 import { isInPlanningWeek, planningWeek } from "./planning-week";
@@ -319,8 +320,8 @@ export async function importPeople(rows: PersonImportRow[], groupId: string, shi
       resolvedGroupId = found.id;
     }
     const old = byCode.get(row.code); const note = [row.position && `Vị trí: ${row.position}`].filter(Boolean).join(" · ");
-    if (old) { await db.employees.update(old.id, { name: row.name, groupId: resolvedGroupId, shiftId, serialNumber: row.code, phone: row.phone, note, updatedAt: Date.now() }); updated++; }
-    else { const createdRow = await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, groupId: resolvedGroupId, shiftId, status: "ACTIVE", role: "USER", phone: row.phone, note }); byCode.set(row.code, createdRow); created++; }
+    if (old) { await updateEmployee(old.id, { name: row.name, groupId: resolvedGroupId, shiftId, serialNumber: row.code, phone: row.phone, note }); updated++; }
+    else { const createdRow = await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, groupId: resolvedGroupId, shiftId, status: "ACTIVE", role: "EMPLOYEE", phone: row.phone, note }); byCode.set(row.code, createdRow); created++; }
   }
   // Sau khi mọi nhân sự đã được chuyển sang nhóm từ cột D, xóa các nhóm rỗng
   // cũ như "Nhóm 1", "Nhóm 2" hoặc "2" để màn Nhóm phản ánh đúng file Excel.
@@ -339,7 +340,10 @@ export async function importPeople(rows: PersonImportRow[], groupId: string, shi
     const old = scheduleByKey.get(`${employee.id}|${schedule.date}`);
     scheduleRowsToSave.push({ id: old?.id ?? `${employee.id}-${schedule.date}`, employeeId: employee.id, date: schedule.date, shiftCode: schedule.shiftCode, source: "Lịch làm việc Excel", createdAt: old?.createdAt ?? now, updatedAt: now });
   }
-  if (scheduleRowsToSave.length) await db.workSchedules.bulkPut(scheduleRowsToSave);
+  if (scheduleRowsToSave.length) await db.transaction("rw", db.workSchedules, db.syncQueue, async () => {
+    await db.workSchedules.bulkPut(scheduleRowsToSave);
+    await db.syncQueue.bulkAdd(scheduleRowsToSave.map((row) => makeSyncOperation("work_schedules", row.id, "UPSERT", row)));
+  });
   const scheduled = scheduleRowsToSave.length;
   await writeAudit({ action: "IMPORT", module: "employees", recordId: "excel", newValue: { created, updated, scheduled } }); return { created, updated, scheduled };
 }

@@ -3,7 +3,7 @@ export const APP_VERSION = "1.5.0";
 export const DB_VERSION = 4;
 export const BACKUP_VERSION = 1;
 
-export type Role = "ADMIN" | "LEADER" | "USER" | "VIEWER";
+export type Role = "ADMIN" | "MANAGER" | "EMPLOYEE" | "VIEWER";
 
 export type EmployeeStatus = "ACTIVE" | "LEAVE" | "SUSPENDED";
 
@@ -169,6 +169,34 @@ export interface Attendance {
   confirmedBy?: string;
   sample?: boolean;
   createdAt: number;
+}
+
+export type SyncEntityType = "employees" | "work_schedules" | "schedule_adjustments" | "attendance";
+export type SyncOperationType = "UPSERT" | "DELETE";
+
+export interface SyncOperation {
+  id: string;
+  entityType: SyncEntityType;
+  entityId: string;
+  operation: SyncOperationType;
+  payload: string;
+  attempts: number;
+  lastError: string | null;
+  createdAt: number;
+  nextRetryAt: number;
+}
+
+export interface SyncState { key: string; value: string; }
+
+export interface SyncConflict {
+  id: string;
+  entityType: SyncEntityType;
+  entityId: string;
+  localValue: string;
+  serverValue: string;
+  reason: string;
+  createdAt: number;
+  resolvedAt: number | null;
 }
 
 export interface WorkBlock {
@@ -457,8 +485,8 @@ export const EMPLOYEE_STATUS_LABEL: Record<EmployeeStatus, string> = {
 
 export const ROLE_LABEL: Record<Role, string> = {
   ADMIN: "Quản trị",
-  LEADER: "Tổ trưởng",
-  USER: "Nhân sự",
+  MANAGER: "Quản lý",
+  EMPLOYEE: "Nhân sự",
   VIEWER: "Chỉ xem",
 };
 

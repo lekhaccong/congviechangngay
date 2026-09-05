@@ -112,14 +112,14 @@ export async function seedSampleData(db: CvpDB): Promise<void> {
 
   const people: Array<Omit<Employee, "id" | "createdAt" | "updatedAt" | "sample">> = [
     { code: "NV001", name: "Nguyễn Văn An", serialNumber: "01", groupId: g1, shiftId: ca1, status: "ACTIVE", role: "ADMIN", note: "Tổ trưởng ca 1" },
-    { code: "NV002", name: "Trần Thị Bình", serialNumber: "02", groupId: g1, shiftId: ca1, status: "ACTIVE", role: "LEADER", note: "" },
-    { code: "NV003", name: "Lê Văn Cường", serialNumber: "03", groupId: g1, shiftId: ca1, status: "ACTIVE", role: "USER", note: "" },
-    { code: "NV004", name: "Phạm Thị Dung", serialNumber: "04", groupId: g1, shiftId: ca1, status: "ACTIVE", role: "USER", note: "" },
-    { code: "NV005", name: "Hoàng Văn Em", serialNumber: "05", groupId: g2, shiftId: ca1, status: "ACTIVE", role: "USER", note: "" },
-    { code: "NV006", name: "Võ Thị Phương", serialNumber: "06", groupId: g2, shiftId: ca1, status: "ACTIVE", role: "USER", note: "" },
-    { code: "NV007", name: "Đặng Văn Giang", serialNumber: "07", groupId: g2, shiftId: ca3, status: "ACTIVE", role: "USER", note: "Ca chiều" },
-    { code: "NV008", name: "Bùi Thị Hoa", serialNumber: "08", groupId: g1, shiftId: ca2, status: "ACTIVE", role: "USER", note: "" },
-    { code: "NV009", name: "Ngô Văn Ích", serialNumber: "09", groupId: g2, shiftId: ca4, status: "ACTIVE", role: "USER", note: "Ca đêm" },
+    { code: "NV002", name: "Trần Thị Bình", serialNumber: "02", groupId: g1, shiftId: ca1, status: "ACTIVE", role: "MANAGER", note: "" },
+    { code: "NV003", name: "Lê Văn Cường", serialNumber: "03", groupId: g1, shiftId: ca1, status: "ACTIVE", role: "EMPLOYEE", note: "" },
+    { code: "NV004", name: "Phạm Thị Dung", serialNumber: "04", groupId: g1, shiftId: ca1, status: "ACTIVE", role: "EMPLOYEE", note: "" },
+    { code: "NV005", name: "Hoàng Văn Em", serialNumber: "05", groupId: g2, shiftId: ca1, status: "ACTIVE", role: "EMPLOYEE", note: "" },
+    { code: "NV006", name: "Võ Thị Phương", serialNumber: "06", groupId: g2, shiftId: ca1, status: "ACTIVE", role: "EMPLOYEE", note: "" },
+    { code: "NV007", name: "Đặng Văn Giang", serialNumber: "07", groupId: g2, shiftId: ca3, status: "ACTIVE", role: "EMPLOYEE", note: "Ca chiều" },
+    { code: "NV008", name: "Bùi Thị Hoa", serialNumber: "08", groupId: g1, shiftId: ca2, status: "ACTIVE", role: "EMPLOYEE", note: "" },
+    { code: "NV009", name: "Ngô Văn Ích", serialNumber: "09", groupId: g2, shiftId: ca4, status: "ACTIVE", role: "EMPLOYEE", note: "Ca đêm" },
     { code: "NV010", name: "Lý Thị Kim", serialNumber: "10", groupId: g1, shiftId: ca2, status: "LEAVE", role: "VIEWER", note: "Nghỉ phép" },
   ];
 

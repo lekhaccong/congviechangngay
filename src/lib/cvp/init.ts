@@ -6,6 +6,8 @@ import { useAppStore } from "./store";
 import { formatDate, getActiveContext } from "./time";
 import type { Role } from "./types";
 import { tickReminders } from "./reminders";
+import { getCachedProfile } from "@/lib/supabase/profile";
+import { supabaseConfigured } from "@/lib/supabase/client";
 
 let started = false;
 
@@ -20,12 +22,13 @@ export async function initApp(): Promise<void> {
   const initialized = await db.settings.get("initialized");
   if (!initialized) {
     await seedCatalog(db);
-    await seedSampleData(db);
+    if (!supabaseConfigured) await seedSampleData(db);
     await db.settings.put({ key: "initialized", value: "true" });
     await db.settings.put({ key: "otRoundMinutes", value: "30" });
   }
   const sample = (await db.settings.get("sampleData"))?.value === "true";
-  const userId = (await db.settings.get("currentUserId"))?.value ?? null;
+  const cloudProfile = supabaseConfigured ? getCachedProfile() : null;
+  const userId = cloudProfile?.employeeId ?? (await db.settings.get("currentUserId"))?.value ?? null;
   const user = userId ? await db.employees.get(userId) : null;
   const otRound = Number((await db.settings.get("otRoundMinutes"))?.value ?? 30);
   const autoShift = (await db.settings.get("autoShift"))?.value !== "false";
@@ -39,8 +42,8 @@ export async function initApp(): Promise<void> {
 
   useAppStore.getState().hydrate({
     currentUserId: user?.id ?? null,
-    currentUserName: user?.name ?? "Hệ thống",
-    role: (user?.role as Role) ?? "ADMIN",
+    currentUserName: cloudProfile?.displayName ?? user?.name ?? "Hệ thống",
+    role: cloudProfile?.role ?? (user?.role as Role) ?? "ADMIN",
     selectedDate: date,
     selectedShiftId: shiftId,
     autoShift,

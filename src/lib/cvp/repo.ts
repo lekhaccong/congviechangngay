@@ -6,6 +6,7 @@ import { effectiveShiftCode } from "./business-shifts";
 import { applyProgress, refreshTaskStatus } from "./progress";
 import { useAppStore } from "./store";
 import { formatDate, shiftWindow } from "./time";
+import { makeSyncOperation } from "@/lib/sync/queue";
 import type {
   Abnormality,
   Amh,
@@ -125,8 +126,9 @@ export async function createEmployee(data: Omit<Employee, "id" | "createdAt" | "
   if (await db.employees.where("code").equals(code).first()) throw new Error(`SBD ${code} đã tồn tại`);
   const now = Date.now();
   const row: Employee = { ...data, code, serialNumber: code, id: nid(), createdAt: now, updatedAt: now };
-  await db.transaction("rw", db.employees, db.auditLogs, async () => {
+  await db.transaction("rw", db.employees, db.auditLogs, db.syncQueue, async () => {
     await db.employees.add(row);
+    await db.syncQueue.add(makeSyncOperation("employees", row.id, "UPSERT", row));
     await writeAudit({ action: "CREATE", module: "employees", recordId: row.id, newValue: row });
   });
   return row;
@@ -140,8 +142,9 @@ export async function updateEmployee(id: string, patch: Partial<Employee>) {
   const duplicate = await db.employees.where("code").equals(code).first();
   if (duplicate && duplicate.id !== id) throw new Error(`SBD ${code} đã tồn tại`);
   const next = { ...old, ...patch, code, serialNumber: code, id, updatedAt: Date.now() };
-  await db.transaction("rw", db.employees, db.auditLogs, async () => {
+  await db.transaction("rw", db.employees, db.auditLogs, db.syncQueue, async () => {
     await db.employees.put(next);
+    await db.syncQueue.add(makeSyncOperation("employees", next.id, "UPSERT", next));
     await writeAudit({ action: "UPDATE", module: "employees", recordId: id, oldValue: old, newValue: next });
   });
   return next;
@@ -150,10 +153,11 @@ export async function updateEmployee(id: string, patch: Partial<Employee>) {
 export async function deleteEmployee(id: string) {
   const db = getDb();
   const old = await db.employees.get(id);
-  await db.transaction("rw", db.employees, db.workSchedules, db.scheduleAdjustments, db.auditLogs, async () => {
+  await db.transaction("rw", db.employees, db.workSchedules, db.scheduleAdjustments, db.auditLogs, db.syncQueue, async () => {
     await db.workSchedules.where("employeeId").equals(id).delete();
     await db.scheduleAdjustments.where("employeeId").equals(id).delete();
     await db.employees.delete(id);
+    await db.syncQueue.add(makeSyncOperation("employees", id, "DELETE", old));
     await writeAudit({ action: "DELETE", module: "employees", recordId: id, oldValue: old });
   });
 }
@@ -186,8 +190,9 @@ export async function changeSchedule(employeeId: string, date: string, shiftCode
   if (originalShiftCode === shiftCode) throw new Error("Ca mới đang trùng với ca thực tế");
   const now = Date.now(); const batchId = nid();
   const row: ScheduleAdjustment = { id: nid(), batchId, date, employeeId, originalShiftCode, adjustedShiftCode: shiftCode, kind: "CHANGE", reason: reason.trim(), status: "ACTIVE", createdBy: c.userName, createdAt: now, revertedAt: null };
-  await db.transaction("rw", db.scheduleAdjustments, db.auditLogs, async () => {
+  await db.transaction("rw", db.scheduleAdjustments, db.auditLogs, db.syncQueue, async () => {
     await db.scheduleAdjustments.add(row);
+    await db.syncQueue.add(makeSyncOperation("schedule_adjustments", row.id, "UPSERT", row));
     await writeAudit({ action: "SHIFT_CHANGE", module: "scheduleAdjustments", recordId: batchId, newValue: row });
   });
   await refreshOtRatesForEmployees([employeeId], date);
@@ -209,8 +214,9 @@ export async function swapSchedules(firstEmployeeId: string, secondEmployeeId: s
     { ...common, id: nid(), employeeId: firstEmployeeId, originalShiftCode: firstCode, adjustedShiftCode: secondCode },
     { ...common, id: nid(), employeeId: secondEmployeeId, originalShiftCode: secondCode, adjustedShiftCode: firstCode },
   ];
-  await db.transaction("rw", db.scheduleAdjustments, db.auditLogs, async () => {
+  await db.transaction("rw", db.scheduleAdjustments, db.auditLogs, db.syncQueue, async () => {
     await db.scheduleAdjustments.bulkAdd(rows);
+    await db.syncQueue.bulkAdd(rows.map((row) => makeSyncOperation("schedule_adjustments", row.id, "UPSERT", row)));
     await writeAudit({ action: "SHIFT_CHANGE", module: "scheduleAdjustments", recordId: batchId, newValue: rows });
   });
   await refreshOtRatesForEmployees([firstEmployeeId, secondEmployeeId], date);
@@ -222,8 +228,9 @@ export async function revertScheduleAdjustment(batchId: string) {
   const rows = await db.scheduleAdjustments.where("batchId").equals(batchId).toArray();
   if (!rows.some((row) => row.status === "ACTIVE")) throw new Error("Điều chỉnh này đã được hoàn tác");
   const revertedAt = Date.now();
-  await db.transaction("rw", db.scheduleAdjustments, db.auditLogs, async () => {
+  await db.transaction("rw", db.scheduleAdjustments, db.auditLogs, db.syncQueue, async () => {
     await db.scheduleAdjustments.where("batchId").equals(batchId).modify({ status: "REVERTED", revertedAt });
+    await db.syncQueue.bulkAdd(rows.map((row) => makeSyncOperation("schedule_adjustments", row.id, "UPSERT", { ...row, status: "REVERTED", revertedAt })));
     await writeAudit({ action: "SHIFT_REVERT", module: "scheduleAdjustments", recordId: batchId, oldValue: rows, newValue: { revertedAt } });
   });
   await refreshOtRatesForEmployees([...new Set(rows.map((row) => row.employeeId))], rows[0]?.date ?? ctx().date);
@@ -327,8 +334,9 @@ export async function checkIn(employeeId: string) {
         note: "",
         createdAt: now,
       };
-  await db.transaction("rw", db.attendance, db.auditLogs, async () => {
+  await db.transaction("rw", db.attendance, db.auditLogs, db.syncQueue, async () => {
     await db.attendance.put(row);
+    await db.syncQueue.add(makeSyncOperation("attendance", row.id, "UPSERT", row));
     await writeAudit({ action: "CHECK_IN", module: "attendance", recordId: row.id, newValue: row });
   });
   return row;
@@ -358,8 +366,9 @@ export async function checkOut(employeeId: string) {
     otMinutes = Math.round((now - window.end.getTime()) / 60000);
   }
   const next: Attendance = { ...existing, checkOut: now, status, otMinutes };
-  await db.transaction("rw", db.attendance, db.auditLogs, async () => {
+  await db.transaction("rw", db.attendance, db.auditLogs, db.syncQueue, async () => {
     await db.attendance.put(next);
+    await db.syncQueue.add(makeSyncOperation("attendance", next.id, "UPSERT", next));
     await writeAudit({ action: "CHECK_OUT", module: "attendance", recordId: next.id, newValue: next });
   });
   return next;
@@ -388,8 +397,11 @@ export async function markAbsent(employeeId: string, note: string) {
         note,
         createdAt: Date.now(),
       };
-  await db.attendance.put(row);
-  await writeAudit({ action: "UPDATE", module: "attendance", recordId: row.id, newValue: row });
+  await db.transaction("rw", db.attendance, db.auditLogs, db.syncQueue, async () => {
+    await db.attendance.put(row);
+    await db.syncQueue.add(makeSyncOperation("attendance", row.id, "UPSERT", row));
+    await writeAudit({ action: "UPDATE", module: "attendance", recordId: row.id, newValue: row });
+  });
   return row;
 }
 
@@ -400,8 +412,9 @@ export async function confirmAttendance(employeeId: string, date: string, shiftI
   const row: Attendance = existing
     ? { ...existing, status: "PRESENT", checkIn: null, checkOut: null, otMinutes: 0, note: "Đã đến đầu ca", actualShiftCode, confirmedAt: now, confirmedBy: c.userName }
     : { id: nid(), employeeId, date, shiftId, checkIn: null, checkOut: null, status: "PRESENT", otMinutes: 0, note: "Đã đến đầu ca", actualShiftCode, confirmedAt: now, confirmedBy: c.userName, createdAt: now };
-  await db.transaction("rw", db.attendance, db.auditLogs, async () => {
+  await db.transaction("rw", db.attendance, db.auditLogs, db.syncQueue, async () => {
     await db.attendance.put(row);
+    await db.syncQueue.add(makeSyncOperation("attendance", row.id, "UPSERT", row));
     await writeAudit({ action: "ATTENDANCE_CONFIRM", module: "attendance", recordId: row.id, newValue: row });
   });
   return row;
@@ -410,8 +423,9 @@ export async function confirmAttendance(employeeId: string, date: string, shiftI
 export async function clearAttendanceConfirmation(id: string) {
   const db = getDb(); const old = await db.attendance.get(id);
   if (!old) return;
-  await db.transaction("rw", db.attendance, db.auditLogs, async () => {
+  await db.transaction("rw", db.attendance, db.auditLogs, db.syncQueue, async () => {
     await db.attendance.delete(id);
+    await db.syncQueue.add(makeSyncOperation("attendance", id, "DELETE", old));
     await writeAudit({ action: "DELETE", module: "attendance", recordId: id, oldValue: old });
   });
 }

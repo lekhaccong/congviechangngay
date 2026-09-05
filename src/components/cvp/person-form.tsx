@@ -45,7 +45,7 @@ export function PersonForm({
   const [groupId, setGroupId] = useState("");
   const [shiftId, setShiftId] = useState("");
   const [status, setStatus] = useState<EmployeeStatus>("ACTIVE");
-  const [role, setRole] = useState<Role>("USER");
+  const [role, setRole] = useState<Role>("EMPLOYEE");
   const [phone, setPhone] = useState("");
   const [note, setNote] = useState("");
 
@@ -57,7 +57,7 @@ export function PersonForm({
     setGroupId(initial?.groupId ?? groups[0]?.id ?? "");
     setShiftId(initial?.shiftId ?? shifts[0]?.id ?? "");
     setStatus(initial?.status ?? "ACTIVE");
-    setRole(initial?.role ?? "USER");
+    setRole(initial?.role ?? "EMPLOYEE");
     setPhone(initial?.phone ?? "");
     setNote(initial?.note ?? "");
   }, [open, initial, groups, shifts]);
@@ -109,8 +109,8 @@ export function PersonForm({
         <Field label="Quyền">
           <NativeSelect value={role} onChange={(e) => setRole(e.target.value as Role)}>
             <option value="ADMIN">Quản trị</option>
-            <option value="LEADER">Tổ trưởng</option>
-            <option value="USER">Nhân sự</option>
+            <option value="MANAGER">Quản lý</option>
+            <option value="EMPLOYEE">Nhân sự</option>
             <option value="VIEWER">Chỉ xem</option>
           </NativeSelect>
         </Field>

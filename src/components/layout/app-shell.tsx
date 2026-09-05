@@ -20,6 +20,8 @@ import { applyDate, applyShift } from "@/lib/cvp/init";
 import { AbnormalDialog } from "@/components/cvp/abnormal-dialog";
 import { NativeSelect } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { startSyncEngine } from "@/lib/sync/engine";
+import { useRow } from "@/lib/cvp/hooks";
 
 const NAV = [
   { to: "/", label: "Ca", icon: LayoutDashboard },
@@ -40,10 +42,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [abnormal, setAbnormal] = useState(false);
   const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
   const shift = shifts.find((s) => s.id === shiftId);
+  const syncStatus = useRow(() => getDb().syncState.get("status"));
+  const pendingSync = useRows(() => getDb().syncQueue.toArray()).length;
 
   useEffect(() => {
     void initApp();
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    return startSyncEngine();
+  }, [ready]);
 
   if (!ready) {
     return (
@@ -117,6 +126,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {!autoShift ? (
           <p className="mx-auto mt-1 max-w-5xl text-xs text-muted">Ca đang chọn thủ công.</p>
         ) : null}
+        {syncStatus?.value && syncStatus.value !== "IDLE" ? <p className="mx-auto mt-1 max-w-5xl text-xs text-muted">{syncStatus.value === "OFFLINE" ? `Offline · ${pendingSync} thay đổi đang chờ` : syncStatus.value === "SYNCING" ? "Đang đồng bộ…" : `Đồng bộ cần thử lại · ${pendingSync} thay đổi`}</p> : null}
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-4 pb-28">{children}</main>

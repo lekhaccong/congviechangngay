@@ -114,7 +114,7 @@ function ScanPage() {
                 groupId: groups[0]?.id ?? "",
                 shiftId: shifts[0]?.id ?? "",
                 status: "ACTIVE",
-                role: "USER",
+                role: "EMPLOYEE",
                 note: "Tạo từ QR",
               });
               setUnknown(null);

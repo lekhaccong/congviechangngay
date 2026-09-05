@@ -24,6 +24,9 @@ import type {
   ThreeSRecord,
   WorkBlock,
   WorkSchedule,
+  SyncConflict,
+  SyncOperation,
+  SyncState,
 } from "./types";
 
 export class CvpDB extends Dexie {
@@ -51,6 +54,9 @@ export class CvpDB extends Dexie {
   notifications!: Table<AppNotification, string>;
   settings!: Table<AppSetting, string>;
   handovers!: Table<Handover, string>;
+  syncQueue!: Table<SyncOperation, string>;
+  syncState!: Table<SyncState, string>;
+  syncConflicts!: Table<SyncConflict, string>;
 
   constructor() {
     super("congviecpro");
@@ -196,6 +202,22 @@ export class CvpDB extends Dexie {
       checklists: "id, blockId", checklistItems: "id, checklistId, taskId, threeSId, done", photos: "id, ownerModule, ownerId, createdAt", blobs: "id", auditLogs: "id, timestamp, module, recordId, date, shiftId, action", overtimes: "id, employeeId, date, shiftId", amhs: "id, employeeId, date, shiftId, status", dataItems: "id, productCode, invoice, lot, status", goodsItems: "id, invoice, productCode, lot, status, exportDate", lots: "id, lotCode, invoice, productCode, status, date", lotClosures: "id, lotId, closedAt", threeS: "id, date, shiftId", abnormalities: "id, status, detectedAt, linkedModule, linkedId", notifications: "id, dueAt, read", settings: "key", handovers: "id, date, shiftId",
     }).upgrade(async (tx) => {
       await tx.table("shifts").update("shift-2", { startTime: "06:00", endTime: "15:00" });
+    });
+
+    // Online Phase 1: thêm hàng đợi đồng bộ, không xóa hoặc thay thế dữ liệu nghiệp vụ local.
+    this.version(8).stores({
+      employees: "id, code, groupId, shiftId, status, name", groups: "id, order", shifts: "id, order",
+      workSchedules: "id, employeeId, date, shiftCode, [employeeId+date]", scheduleAdjustments: "id, batchId, date, employeeId, status, [employeeId+date]",
+      attendance: "id, employeeId, date, shiftId, [employeeId+date+shiftId]", workBlocks: "id, order", tasks: "id, blockId, assigneeId, date, shiftId, status, deadline",
+      checklists: "id, blockId", checklistItems: "id, checklistId, taskId, threeSId, done", photos: "id, ownerModule, ownerId, createdAt", blobs: "id", auditLogs: "id, timestamp, module, recordId, date, shiftId, action", overtimes: "id, employeeId, date, shiftId", amhs: "id, employeeId, date, shiftId, status", dataItems: "id, productCode, invoice, lot, status", goodsItems: "id, invoice, productCode, lot, status, exportDate", lots: "id, lotCode, invoice, productCode, status, date", lotClosures: "id, lotId, closedAt", threeS: "id, date, shiftId", abnormalities: "id, status, detectedAt, linkedModule, linkedId", notifications: "id, dueAt, read", settings: "key", handovers: "id, date, shiftId",
+      syncQueue: "id, entityType, entityId, createdAt, nextRetryAt, [entityType+entityId]",
+      syncState: "key",
+      syncConflicts: "id, entityType, entityId, createdAt, resolvedAt",
+    }).upgrade(async (tx) => {
+      await tx.table("employees").toCollection().modify((row) => {
+        if (row.role === "LEADER") row.role = "MANAGER";
+        if (row.role === "USER") row.role = "EMPLOYEE";
+      });
     });
   }
 }

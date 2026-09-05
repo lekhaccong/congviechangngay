@@ -39,7 +39,7 @@ function SettingsPage() {
           </NativeSelect>
         </Field>
         <p className="text-xs text-muted">
-          Quyền hiện tại: {ROLE_LABEL[store.role]}. ADMIN toàn quyền, LEADER quản lý ca, USER thực hiện, VIEWER chỉ xem.
+          Quyền hiện tại: {ROLE_LABEL[store.role]}. ADMIN toàn quyền, MANAGER quản lý ca, EMPLOYEE thực hiện, VIEWER chỉ xem.
         </p>
       </section>
       <section className="space-y-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
